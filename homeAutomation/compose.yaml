@@ -1,0 +1,108 @@
+services:
+
+
+  eclipse-mosquitto:
+    image: "eclipse-mosquitto:latest"
+    container_name: eclipse-mosquitto
+    environment:
+      - TZ=${TZ}
+      - PUID=${USER_HOMEAUTO}
+      - GUID=${USER_HOMEAUTO}
+    ports:
+      - "1883:1883" #default mqtt port
+      - "9001:9001" #default mqtt port for websockets
+    volumes:
+      - ${APP_PATH}/eclipse-mosquitto/config:/mosquitto/config
+      - ${APP_PATH}/eclipse-mosquitto/data:/mosquitto/data
+      - ${APP_PATH}/eclipse-mosquitto/log:/mosquitto/log
+    networks:
+      - ${NETWORK}
+    restart: unless-stopped
+
+
+  zigbee2mqtt:
+    container_name: zigbee2mqtt
+    image: "koenkk/zigbee2mqtt:latest-dev"
+    user: ${USER_HOMEAUTO}:${USER_HOMEAUTO}
+    depends_on:
+      - eclipse-mosquitto
+    volumes:
+      - ${APP_PATH}/zigbee2mqtt:/app/data
+      - /run/udev:/run/udev
+    ports:
+      - ${GUI_PORT_ZIGBEE2MQTT}:8080
+    devices:
+      - /dev/serial/by-id/${ZIGBEE_DEVID}:/dev/zigbee
+    group_add:
+      - ${GROUP_USBDEVICES}
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy: ${GUI_URL_ZIGBEE2MQTT}
+      caddy.import: local-only "{{upstreams 8080}}"
+    restart: unless-stopped
+
+
+  node-red:
+    container_name: node-red
+    image: nodered/node-red:latest
+    user: ${USER_HOMEAUTO}:${USER_HOMEAUTO}
+    environment:
+      - TZ=${TZ}
+    ports:
+      - "${GUI_PORT_NODERED}:1880"
+    volumes:
+      - ${APP_PATH}/node-red:/data
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy: ${GUI_URL_NODERED}
+      caddy.import: local-only "{{upstreams 1880}}"
+    restart: unless-stopped
+
+
+  homeassistant:
+    container_name: homeassistant
+    image: "ghcr.io/home-assistant/home-assistant:stable"
+    # user: ${USER_HOMEAUTO}:${USER_HOMEAUTO}
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${APP_PATH}/homeassistant:/config
+      - /etc/localtime:/etc/localtime:ro
+      # - /run/dbus:/run/dbus:ro
+    ports:
+      - "${GUI_PORT_HOMEASSISTANT}:8123"
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy_0: ${GUI_URL_HOMEASSISTANT}
+      caddy_0.reverse_proxy: "{{upstreams 8123}}"
+      caddy_1: ${GUI_URL2_HOMEASSISTANT}
+      caddy_1.redir: https://${GUI_URL_HOMEASSISTANT} permanent
+    restart: unless-stopped
+
+
+  openwakeword:
+    container_name: openwakeword
+    image: rhasspy/wyoming-openwakeword
+    volumes:
+      # - ${APP_PATH}/openwakeword/custom:/custom
+      - ${APP_PATH}/openwakeword/config:/config
+      - ${APP_PATH}/openwakeword/data:/data
+    environment:
+      - TZ=${TZ}
+    depends_on:
+      - homeassistant
+    ports:
+      - ${GUI_PORT_OPENWAKEWORD}:10400
+      - ${GUI_PORT_OPENWAKEWORD}:10400/udp
+    command: --preload-model 'ok_nabu'
+    networks:
+      - ${NETWORK}
+    restart: unless-stopped
+
+
+networks:
+  caddy:
+    external: true

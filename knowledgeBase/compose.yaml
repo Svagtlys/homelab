@@ -1,0 +1,434 @@
+services:
+
+  postgres:
+    container_name: postgres
+    image: postgres:16
+    user: ${USER_KNOWLEDGE}:${USER_KNOWLEDGE}
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    volumes:
+      - ${APP_PATH}/postgres/data:/var/lib/postgresql/data
+      - ${APP_PATH}/postgres/init/:/docker-entrypoint-initdb.d
+      - /etc/passwd:/etc/passwd:ro
+    environment:
+      POSTGRES_PASSWORD: ${PASSWORD_POSTGRES}
+      POSTGRES_USER: ${USERNAME_POSTGRES}
+      POSTGRES_MULTIPLE_DATABASES: tandoor,anytype
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -qd tandoor -U $$POSTGRES_USER && pg_isready -qd anytype -U $$POSTGRES_USER']
+      interval: 20s
+      retries: 10
+      timeout: 10s
+      start_period: 1m
+    networks:
+      - ${NETWORK}
+    labels:
+      deunhealth.restart.on.unhealthy: true
+
+  pgbackups:
+    image: prodrigestivill/postgres-backup-local
+    container_name: pgbackups
+    restart: unless-stopped
+    user: ${USER_KNOWLEDGE}:${USER_KNOWLEDGE}
+    volumes:
+      - ${APP_PATH}/postgres-backup-local:/backups
+    links:
+      - postgres
+    depends_on:
+      - postgres
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=tandoor
+      - POSTGRES_USER=${USERNAME_POSTGRES}
+      - POSTGRES_PASSWORD=${PASSWORD_POSTGRES}
+      - POSTGRES_EXTRA_OPTS=-Z1 --schema=public --blobs
+      - SCHEDULE=@weekly
+      - BACKUP_KEEP_DAYS=7
+      - BACKUP_KEEP_WEEKS=4
+      - BACKUP_KEEP_MONTHS=6
+      - HEALTHCHECK_PORT=8080 
+    networks:
+      - ${NETWORK}
+
+
+  tandoor:
+    image: vabene1111/recipes:latest
+    container_name: tandoor
+    user: ${USER_KNOWLEDGE}:${USER_KNOWLEDGE}
+    depends_on:
+      - postgres
+    volumes:
+      - ${APP_PATH}/tandoor/staticfiles:/opt/recipes/staticfiles
+      - ${APP_PATH}/tandoor/mediafiles:/opt/recipes/mediafiles
+      # - ${APP_PATH}/nginx-tandoor/:/etc/nginx/
+    environment:
+      - DB_ENGINE=django.db.backends.postgresql
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=tandoor
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${USERNAME_POSTGRES}
+      - POSTGRES_PASSWORD=${PASSWORD_POSTGRES}
+      - SECRET_KEY=${TANDOOR_SECRET}
+      - DEBUG=0
+    restart: unless-stopped
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy: ${GUI_URL_TANDOOR}
+      caddy.import: headers
+      caddy.import_1: main
+      caddy.reverse_proxy: "{{upstreams 8080}}"
+      caddy.handle_path: /media/*
+      caddy.handle_path.file_server:
+      caddy.handle_path.root: "* /www/tandoor/mediafiles"
+
+  homebox:
+    image: ghcr.io/hay-kot/homebox:latest-rootless
+    user: ${USER_KNOWLEDGE}:${USER_KNOWLEDGE}
+    container_name: homebox
+    environment:
+    - HBOX_LOG_LEVEL=info
+    - HBOX_LOG_FORMAT=text
+    - HBOX_WEB_MAX_UPLOAD_SIZE=10
+    - HBOX_OPTIONS_ALLOW_REGISTRATION=False
+    volumes:
+      - ${APP_PATH}/homebox:/data/
+    restart: 'unless-stopped'
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy: ${GUI_URL_HOMEBOX}
+      caddy.reverse_proxy: "{{upstreams 7745}}"
+
+
+  # generate configs using the anyconf utility
+  generateconfig-anyconf:
+    image: generateconfig-anyconf
+    container_name: anytype-anyconf
+    build:
+      context: .
+      dockerfile: Dockerfile-generateconfig-anyconf
+    volumes:
+      - ${APP_PATH}/anytype:/code
+    networks:
+      - ${NETWORK}
+
+  # processing any-sync-* configs
+  generateconfig-processing:
+    depends_on:
+      generateconfig-anyconf:
+        condition: service_healthy
+    image: generateconfig-processing
+    container_name: anytype-processing
+    build:
+      context: .
+      dockerfile: Dockerfile-generateconfig-processing
+    volumes:
+      - ${APP_PATH}/anytype:/code
+    networks:
+      - ${NETWORK}
+
+  mongo-1:
+    depends_on:
+      generateconfig-processing:
+        condition: service_healthy
+    image: "mongo:${MONGO_VERSION}"
+    container_name: anytype-mongo
+    command: --replSet ${MONGO_REPLICA_SET} --port ${MONGO_1_PORT}
+    ports:
+      - "${MONGO_1_PORT}:${MONGO_1_PORT}"
+    volumes:
+      - ${APP_PATH}/anytype/storage/mongo-1/:/data/db
+    healthcheck:
+      test: test $$(mongosh --port ${MONGO_1_PORT} --quiet --eval "try {rs.initiate({_id:'${MONGO_REPLICA_SET}',members:[{_id:0,host:\"mongo-1:${MONGO_1_PORT}\"}]})} catch(e) {rs.status().ok}") -eq 1
+      interval: 10s
+      start_period: 30s
+    networks:
+      - ${NETWORK}
+    labels:
+      deunhealth.restart.on.unhealthy: true
+
+  redis:
+    depends_on:
+      generateconfig-processing:
+        condition: service_healthy
+    image: "redis/redis-stack-server:${REDIS_VERSION}"
+    container_name: anytype-redis
+    restart: always
+    command: redis-server --dir /data/ --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction --protected-mode no --loadmodule /opt/redis-stack/lib/redisbloom.so
+    # ports:
+    #   - "${REDIS_PORT}:6379"
+    volumes:
+      - ${APP_PATH}/anytype/storage/redis/:/data/
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      interval: 10s
+      timeout: 30s
+      retries: 3
+    networks:
+      - ${NETWORK}
+    labels:
+      deunhealth.restart.on.unhealthy: true
+
+  minio:
+    image: "minio/minio:${MINIO_VERSION}"
+    container_name: anytype-minio
+    restart: always
+    command: server /data --console-address ":${MINIO_WEB_PORT}" --address ":${MINIO_PORT}"
+    environment:
+      MINIO_ROOT_USER: "${AWS_ACCESS_KEY_ID}"
+      MINIO_ROOT_PASSWORD: "${AWS_SECRET_ACCESS_KEY}"
+    ports:
+      - "${EXTERNAL_MINIO_PORT}:${MINIO_PORT}"
+      - "${EXTERNAL_MINIO_WEB_PORT}:${MINIO_WEB_PORT}"
+    volumes:
+      - ${APP_PATH}/anytype/storage/minio:/data
+    healthcheck:
+      test: bash -c ':> /dev/tcp/127.0.0.1/${MINIO_PORT}' || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 3
+    networks:
+      # - default:
+      #     aliases:
+      #       - "${MINIO_BUCKET}.minio" # <bucket-name>.<endpoint-name>
+      - ${NETWORK}
+    labels:
+      deunhealth.restart.on.unhealthy: true
+
+  create-bucket:
+    image: minio/mc:latest
+    container_name: anytype-minio-bucket
+    environment:
+      MC_HOST_minio: http://${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}@minio:${MINIO_PORT}
+    restart: no
+    depends_on:
+      - minio
+    entrypoint:
+      - sh
+      - -c
+      - mc mb minio/${MINIO_BUCKET}
+    networks:
+      - ${NETWORK}
+
+  any-sync-coordinator_bootstrap:
+    image: "ghcr.io/anyproto/any-sync-coordinator:${ANY_SYNC_COORDINATOR_VERSION}"
+    container_name: anytype-coordinator_bootstrap
+    depends_on:
+      generateconfig-processing:
+        condition: service_healthy
+      mongo-1:
+        condition: service_healthy
+    volumes:
+      - ${APP_PATH}/anytype/etc/any-sync-coordinator/:/etc/any-sync-coordinator/
+    restart: no
+    command: bash -c "/bin/any-sync-confapply -c /etc/any-sync-coordinator/config.yml -n /etc/any-sync-coordinator/network.yml -e"
+    networks:
+      - ${NETWORK}
+
+  any-sync-coordinator:
+    image: "ghcr.io/anyproto/any-sync-coordinator:${ANY_SYNC_COORDINATOR_VERSION}"
+    container_name: anytype-coordinator
+    depends_on:
+      generateconfig-processing:
+        condition: service_healthy
+      mongo-1:
+        condition: service_healthy
+      any-sync-coordinator_bootstrap:
+        condition: service_completed_successfully
+    ports:
+      - "${ANY_SYNC_COORDINATOR_PORT}:${ANY_SYNC_COORDINATOR_PORT}"
+      - "${ANY_SYNC_COORDINATOR_QUIC_PORT}:${ANY_SYNC_COORDINATOR_QUIC_PORT}"
+      - 8005:8000
+    volumes:
+      - ${APP_PATH}/anytype/etc/any-sync-coordinator/:/etc/any-sync-coordinator/
+      - ${APP_PATH}/anytype/storage/networkStore/any-sync-coordinator/:/networkStore/
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+    restart: on-failure
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy_0: ${GUI_URL_ANYTYPE}:${ANY_SYNC_COORDINATOR_PORT}
+      caddy_0.reverse_proxy: "{{upstreams ${ANY_SYNC_COORDINATOR_PORT}}}"
+      caddy_1: ${GUI_URL_ANYTYPE}:${ANY_SYNC_COORDINATOR_QUIC_PORT}
+      caddy_1.reverse_proxy: "{{upstreams ${ANY_SYNC_COORDINATOR_QUIC_PORT}}}"
+
+  any-sync-filenode:
+    image: "ghcr.io/anyproto/any-sync-filenode:${ANY_SYNC_FILENODE_VERSION}"
+    container_name: anytype-filenode
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      any-sync-coordinator:
+        condition: service_started
+    ports:
+      - "${ANY_SYNC_FILENODE_PORT}:${ANY_SYNC_FILENODE_PORT}"
+      - "${ANY_SYNC_FILENODE_QUIC_PORT}:${ANY_SYNC_FILENODE_QUIC_PORT}"
+      - 8004:8000
+    volumes:
+      - ${APP_PATH}/anytype/etc/any-sync-filenode/:/etc/any-sync-filenode/
+      - ${APP_PATH}/anytype/etc/.aws:/root/.aws:ro
+      - ${APP_PATH}/anytype/storage/networkStore/any-sync-filenode/:/networkStore/
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+    restart: on-failure
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy_0: ${GUI_URL_ANYTYPE}:${ANY_SYNC_FILENODE_PORT}
+      caddy_0.reverse_proxy: "{{upstreams ${ANY_SYNC_FILENODE_PORT}}}"
+      caddy_1: ${GUI_URL_ANYTYPE}:${ANY_SYNC_FILENODE_QUIC_PORT}
+      caddy_1.reverse_proxy: "{{upstreams ${ANY_SYNC_FILENODE_QUIC_PORT}}}"
+
+  any-sync-node-1:
+    image: "ghcr.io/anyproto/any-sync-node:${ANY_SYNC_NODE_VERSION}"
+    container_name: anytype-node1
+    depends_on:
+      any-sync-coordinator:
+        condition: service_started
+    ports:
+      - "${ANY_SYNC_NODE_1_PORT}:${ANY_SYNC_NODE_1_PORT}"
+      - "${ANY_SYNC_NODE_1_QUIC_PORT}:${ANY_SYNC_NODE_1_QUIC_PORT}"
+      - 8081:8080
+      - 8001:8000
+    volumes:
+      - ${APP_PATH}/anytype/etc/any-sync-node-1/:/etc/any-sync-node/
+      - ${APP_PATH}/anytype/storage/any-sync-node-1/:/storage/
+      - ${APP_PATH}/anytype/storage/networkStore/any-sync-node-1/:/networkStore/
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+    restart: on-failure
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy_0: ${GUI_URL_ANYTYPE}:${ANY_SYNC_NODE_1_PORT}
+      caddy_0.reverse_proxy: "{{upstreams ${ANY_SYNC_NODE_1_PORT}}}"
+      caddy_1: ${GUI_URL_ANYTYPE}:${ANY_SYNC_NODE_1_QUIC_PORT}
+      caddy_1.reverse_proxy: "{{upstreams ${ANY_SYNC_NODE_1_QUIC_PORT}}}"
+
+  any-sync-node-2:
+    image: "ghcr.io/anyproto/any-sync-node:${ANY_SYNC_NODE_VERSION}"
+    container_name: anytype-node2
+    depends_on:
+      any-sync-coordinator:
+        condition: service_started
+    ports:
+      - "${ANY_SYNC_NODE_2_PORT}:${ANY_SYNC_NODE_2_PORT}"
+      - "${ANY_SYNC_NODE_2_QUIC_PORT}:${ANY_SYNC_NODE_2_QUIC_PORT}"
+      - 8082:8080
+      - 8002:8000
+    volumes:
+      - ${APP_PATH}/anytype/etc/any-sync-node-2/:/etc/any-sync-node/
+      - ${APP_PATH}/anytype/storage/any-sync-node-2/:/storage/
+      - ${APP_PATH}/anytype/storage/networkStore/any-sync-node-2/:/networkStore/
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+    restart: on-failure
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy_0: ${GUI_URL_ANYTYPE}:${ANY_SYNC_NODE_2_PORT}
+      caddy_0.reverse_proxy: "{{upstreams ${ANY_SYNC_NODE_2_PORT}}}"
+      caddy_1: ${GUI_URL_ANYTYPE}:${ANY_SYNC_NODE_2_QUIC_PORT}
+      caddy_1.reverse_proxy: "{{upstreams ${ANY_SYNC_NODE_2_QUIC_PORT}}}"
+
+  any-sync-node-3:
+    image: "ghcr.io/anyproto/any-sync-node:${ANY_SYNC_NODE_VERSION}"
+    container_name: anytype-node3
+    depends_on:
+      any-sync-coordinator:
+        condition: service_started
+    ports:
+      - "${ANY_SYNC_NODE_3_PORT}:${ANY_SYNC_NODE_3_PORT}"
+      - "${ANY_SYNC_NODE_3_QUIC_PORT}:${ANY_SYNC_NODE_3_QUIC_PORT}"
+      - 8083:8080
+      - 8003:8000
+    volumes:
+      - ${APP_PATH}/anytype/etc/any-sync-node-3/:/etc/any-sync-node/
+      - ${APP_PATH}/anytype/storage/any-sync-node-3/:/storage/
+      - ${APP_PATH}/anytype/storage/networkStore/any-sync-node-3/:/networkStore/
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+    restart: on-failure
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy_0: ${GUI_URL_ANYTYPE}:${ANY_SYNC_NODE_3_PORT}
+      caddy_0.reverse_proxy: "{{upstreams ${ANY_SYNC_NODE_3_PORT}}}"
+      caddy_1: ${GUI_URL_ANYTYPE}:${ANY_SYNC_NODE_3_QUIC_PORT}
+      caddy_1.reverse_proxy: "{{upstreams ${ANY_SYNC_NODE_3_QUIC_PORT}}}"
+
+  any-sync-consensusnode:
+    image: "ghcr.io/anyproto/any-sync-consensusnode:${ANY_SYNC_CONSENSUSNODE_VERSION}"
+    container_name: anytype-consensus
+    depends_on:
+      any-sync-coordinator:
+        condition: service_started
+    ports:
+      - "${ANY_SYNC_CONSENSUSNODE_PORT}:${ANY_SYNC_CONSENSUSNODE_PORT}"
+      - "${ANY_SYNC_CONSENSUSNODE_QUIC_PORT}:${ANY_SYNC_CONSENSUSNODE_QUIC_PORT}"
+      - 8006:8000
+    volumes:
+      - ${APP_PATH}/anytype/etc/any-sync-consensusnode/:/etc/any-sync-consensusnode/
+      - ${APP_PATH}/anytype/storage/networkStore/any-sync-consensusnode/:/networkStore/
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+    restart: on-failure
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy_0: ${GUI_URL_ANYTYPE}:${ANY_SYNC_CONSENSUSNODE_PORT}
+      caddy_0.reverse_proxy: "{{upstreams ${ANY_SYNC_CONSENSUSNODE_PORT}}}"
+      caddy_1: ${GUI_URL_ANYTYPE}:${ANY_SYNC_CONSENSUSNODE_QUIC_PORT}
+      caddy_1.reverse_proxy: "{{upstreams ${ANY_SYNC_CONSENSUSNODE_QUIC_PORT}}}"
+
+  any-sync-admin:
+    image: "ghcr.io/anyproto/any-sync-admin:${ANY_SYNC_ADMIN_VERSION}"
+    container_name: anytype-admin
+    depends_on:
+      - redis
+      - mongo-1
+    ports:
+      - "${EXTERNAL_ANY_SYNC_ADMIN_PORT}:${ANY_SYNC_ADMIN_PORT}"
+    volumes:
+      - ${APP_PATH}/anytype/etc/any-sync-admin/:/etc/any-sync-admin/
+    restart: on-failure
+    networks:
+      - ${NETWORK}
+
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    user: ${USER_KNOWLEDGE}:999
+    # ports:
+    #   - 3000:3000
+    volumes:
+      - ${APP_PATH}/homepage:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock # (optional) For docker integrations
+    restart: unless-stopped
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy: ${GUI_URL_BASE}
+      caddy.reverse_proxy: "{{upstreams 3000}}"
+
+      
+networks:
+  caddy:
+    external: true
