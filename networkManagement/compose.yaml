@@ -78,6 +78,7 @@ services:
       - OPENVPN_CUSTOM_CONFIG=${CONFIG_OPENVPN}
       - TZ=${TZ}
       - FIREWALL_OUTBOUND_SUBNETS=${GLUETUN_OUTBOUND_SUBNETS}
+      - HEALTH_SERVER_ADDRESS="0.0.0.0:9999"
     restart: unless-stopped
 
   deunhealth:
@@ -99,7 +100,7 @@ services:
     user: "${USER_NETWORK}:${USER_DOCKER}"
     restart: always
     environment:
-      DOMAIN: ${GUI_URL_VAULTWARDEN}  # Your domain; vaultwarden needs to know it's https to work properly with attachments
+      DOMAIN: https://${GUI_URL_VAULTWARDEN}  # Your domain; vaultwarden needs to know it's https to work properly with attachments
       SIGNUPS_ALLOWED: false
       PUSH_ENABLED: true
       PUSH_INSTALLATION_ID: ${VAULTWARDEN_ID}

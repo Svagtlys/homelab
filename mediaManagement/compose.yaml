@@ -17,12 +17,9 @@ services:
       - ${PATH_NAS_SSD}/unfinished/shows:/downloads/shows
     network_mode: "container:gluetun"
     healthcheck:
-      interval: 60s
-      retries: 10
-      test:
-        - CMD
-        - "curl ipinfo.io"
-      timeout: 45s
+      test: "nc -z localhost 9999"
+      interval: 1m
+      timeout: 1m
     restart: always
     labels:
       deunhealth.restart.on.unhealthy: true
@@ -38,12 +35,9 @@ services:
       - ${APP_PATH}/prowlarr:/config
     network_mode: "container:gluetun"
     healthcheck:
-      interval: 60s
-      retries: 10
-      test:
-        - CMD
-        - "curl ipinfo.io"
-      timeout: 45s
+      test: "nc -z localhost 9999"
+      interval: 1m
+      timeout: 1m
     restart: always
     labels:
       deunhealth.restart.on.unhealthy: true
@@ -241,12 +235,9 @@ services:
       caddy.import: local-only "{{upstreams 8090}}"
       deunhealth.restart.on.unhealthy: true
     healthcheck:
-      interval: 60s
-      retries: 10
-      test:
-        - CMD
-        - ping ${WLED_IP} -c 1
-      timeout: 45s
+      test: "nc -vz ${WLED_IP} 80"
+      interval: 1m
+      timeout: 1m
 
 
 networks:
