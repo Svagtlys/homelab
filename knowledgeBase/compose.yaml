@@ -53,7 +53,7 @@ services:
 
 
   tandoor:
-    image: vabene1111/recipes:latest
+    image: tandoor:latest # non-root user requires custom build
     container_name: tandoor
     user: ${USER_KNOWLEDGE}:${USER_KNOWLEDGE}
     depends_on:
