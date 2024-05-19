@@ -165,6 +165,7 @@ services:
       AUTHENTIK_POSTGRESQL__NAME: ${PG_DB:-authentik}
       AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS}
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_LOG_LEVEL: trace
     volumes:
       - ${APP_PATH}/authentik/media:/media
       - ${APP_PATH}/authentik/custom-templates:/templates
