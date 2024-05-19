@@ -133,6 +133,8 @@ services:
       POSTGRES_PASSWORD: ${PG_PASS:?database password required}
       POSTGRES_USER: ${PG_USER:-authentik}
       POSTGRES_DB: ${PG_DB:-authentik}
+    networks:
+      - ${NETWORK}
 
   redis:
     image: docker.io/library/redis:alpine
@@ -148,13 +150,14 @@ services:
       timeout: 3s
     volumes:
       - ${APP_PATH}/redis:/data
+    networks:
+      - ${NETWORK}
 
   server:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2024.4.2}
     restart: unless-stopped
     container_name: auth-server
     command: server
-    user: "${USER_NETWORK}"
     environment:
       AUTHENTIK_REDIS__HOST: redis
       AUTHENTIK_POSTGRESQL__HOST: postgresql
@@ -167,10 +170,15 @@ services:
       - ${APP_PATH}/authentik/custom-templates:/templates
     ports:
       - "${COMPOSE_PORT_HTTP:-9000}:9000"
-      - "${COMPOSE_PORT_HTTPS:-9443}:9443"
+      # - "${COMPOSE_PORT_HTTPS:-9443}:9443"
     depends_on:
       - postgresql
       - redis
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy: ${GUI_URL_AUTHENTIK}
+      caddy.import: local-only "{{upstreams 9000}}"
 
   worker:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2024.4.2}
@@ -193,6 +201,8 @@ services:
     depends_on:
       - postgresql
       - redis
+    networks:
+      - ${NETWORK}
 
 
 networks:

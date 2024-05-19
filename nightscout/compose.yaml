@@ -3,9 +3,9 @@ services:
   mongo:
     image: mongo:4.4
     container_name: ns-mongo
-    user: "${USER_NIGHTSCOUT}:${USER_DOCKER}"
+    user: "${USER_NIGHTSCOUT}:${USER_NIGHTSCOUT}"
     volumes:
-      - ${APP_PATH}/mongo:/data/db
+      - ${APP_PATH}/mongo:/data/db:rw
     networks:
       - ${NETWORK}
     restart: unless-stopped
