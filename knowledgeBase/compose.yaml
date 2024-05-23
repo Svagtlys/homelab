@@ -5,8 +5,6 @@ services:
     image: postgres:16
     user: ${USER_KNOWLEDGE}:${USER_KNOWLEDGE}
     restart: unless-stopped
-    ports:
-      - "5432:5432"
     volumes:
       - ${APP_PATH}/postgres/data:/var/lib/postgresql/data
       - ${APP_PATH}/postgres/init/:/docker-entrypoint-initdb.d
@@ -22,7 +20,8 @@ services:
       timeout: 10s
       start_period: 1m
     networks:
-      - ${NETWORK}
+      - tandoor
+      - anytype
     labels:
       deunhealth.restart.on.unhealthy: true
 
@@ -33,13 +32,12 @@ services:
     user: ${USER_KNOWLEDGE}:${USER_KNOWLEDGE}
     volumes:
       - ${APP_PATH}/postgres-backup-local:/backups
-    links:
-      - postgres
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       - POSTGRES_HOST=postgres
-      - POSTGRES_DB=tandoor
+      - POSTGRES_DB=tandoor,anytype
       - POSTGRES_USER=${USERNAME_POSTGRES}
       - POSTGRES_PASSWORD=${PASSWORD_POSTGRES}
       - POSTGRES_EXTRA_OPTS=-Z1 --schema=public --blobs
@@ -48,8 +46,7 @@ services:
       - BACKUP_KEEP_WEEKS=4
       - BACKUP_KEEP_MONTHS=6
       - HEALTHCHECK_PORT=8080 
-    networks:
-      - ${NETWORK}
+    network_mode: "container:postgres"
 
 
   tandoor:
@@ -57,7 +54,9 @@ services:
     container_name: tandoor
     user: ${USER_KNOWLEDGE}:${USER_KNOWLEDGE}
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+        restart: true
     volumes:
       - ${APP_PATH}/tandoor/staticfiles:/opt/recipes/staticfiles
       - ${APP_PATH}/tandoor/mediafiles:/opt/recipes/mediafiles
@@ -74,6 +73,7 @@ services:
     restart: unless-stopped
     networks:
       - ${NETWORK}
+      - tandoor
     labels:
       caddy: ${GUI_URL_TANDOOR}
       caddy.import: headers
@@ -112,7 +112,7 @@ services:
     volumes:
       - ${APP_PATH}/anytype:/code
     networks:
-      - ${NETWORK}
+      - anytype
 
   # processing any-sync-* configs
   generateconfig-processing:
@@ -127,7 +127,7 @@ services:
     volumes:
       - ${APP_PATH}/anytype:/code
     networks:
-      - ${NETWORK}
+      - anytype
 
   mongo-1:
     depends_on:
@@ -136,8 +136,8 @@ services:
     image: "mongo:${MONGO_VERSION}"
     container_name: anytype-mongo
     command: --replSet ${MONGO_REPLICA_SET} --port ${MONGO_1_PORT}
-    ports:
-      - "${MONGO_1_PORT}:${MONGO_1_PORT}"
+    # ports:
+    #   - "${MONGO_1_PORT}:${MONGO_1_PORT}"
     volumes:
       - ${APP_PATH}/anytype/storage/mongo-1/:/data/db
     healthcheck:
@@ -145,7 +145,7 @@ services:
       interval: 10s
       start_period: 30s
     networks:
-      - ${NETWORK}
+      - anytype
     labels:
       deunhealth.restart.on.unhealthy: true
 
@@ -157,8 +157,6 @@ services:
     container_name: anytype-redis
     restart: always
     command: redis-server --dir /data/ --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction --protected-mode no --loadmodule /opt/redis-stack/lib/redisbloom.so
-    # ports:
-    #   - "${REDIS_PORT}:6379"
     volumes:
       - ${APP_PATH}/anytype/storage/redis/:/data/
     healthcheck:
@@ -167,7 +165,7 @@ services:
       timeout: 30s
       retries: 3
     networks:
-      - ${NETWORK}
+      - anytype
     labels:
       deunhealth.restart.on.unhealthy: true
 
@@ -190,10 +188,7 @@ services:
       timeout: 10s
       retries: 3
     networks:
-      # - default:
-      #     aliases:
-      #       - "${MINIO_BUCKET}.minio" # <bucket-name>.<endpoint-name>
-      - ${NETWORK}
+      - anytype
     labels:
       deunhealth.restart.on.unhealthy: true
 
@@ -210,7 +205,7 @@ services:
       - -c
       - mc mb minio/${MINIO_BUCKET}
     networks:
-      - ${NETWORK}
+      - anytype
 
   any-sync-coordinator_bootstrap:
     image: "ghcr.io/anyproto/any-sync-coordinator:${ANY_SYNC_COORDINATOR_VERSION}"
@@ -225,7 +220,7 @@ services:
     restart: no
     command: bash -c "/bin/any-sync-confapply -c /etc/any-sync-coordinator/config.yml -n /etc/any-sync-coordinator/network.yml -e"
     networks:
-      - ${NETWORK}
+      - anytype
 
   any-sync-coordinator:
     image: "ghcr.io/anyproto/any-sync-coordinator:${ANY_SYNC_COORDINATOR_VERSION}"
@@ -251,6 +246,7 @@ services:
     restart: on-failure
     networks:
       - ${NETWORK}
+      - anytype
     labels:
       caddy_0: ${GUI_URL_ANYTYPE}:${ANY_SYNC_COORDINATOR_PORT}
       caddy_0.reverse_proxy: "{{upstreams ${ANY_SYNC_COORDINATOR_PORT}}}"
@@ -282,6 +278,7 @@ services:
     restart: on-failure
     networks:
       - ${NETWORK}
+      - anytype
     labels:
       caddy_0: ${GUI_URL_ANYTYPE}:${ANY_SYNC_FILENODE_PORT}
       caddy_0.reverse_proxy: "{{upstreams ${ANY_SYNC_FILENODE_PORT}}}"
@@ -310,6 +307,7 @@ services:
     restart: on-failure
     networks:
       - ${NETWORK}
+      - anytype
     labels:
       caddy_0: ${GUI_URL_ANYTYPE}:${ANY_SYNC_NODE_1_PORT}
       caddy_0.reverse_proxy: "{{upstreams ${ANY_SYNC_NODE_1_PORT}}}"
@@ -338,6 +336,7 @@ services:
     restart: on-failure
     networks:
       - ${NETWORK}
+      - anytype
     labels:
       caddy_0: ${GUI_URL_ANYTYPE}:${ANY_SYNC_NODE_2_PORT}
       caddy_0.reverse_proxy: "{{upstreams ${ANY_SYNC_NODE_2_PORT}}}"
@@ -366,6 +365,7 @@ services:
     restart: on-failure
     networks:
       - ${NETWORK}
+      - anytype
     labels:
       caddy_0: ${GUI_URL_ANYTYPE}:${ANY_SYNC_NODE_3_PORT}
       caddy_0.reverse_proxy: "{{upstreams ${ANY_SYNC_NODE_3_PORT}}}"
@@ -392,6 +392,7 @@ services:
     restart: on-failure
     networks:
       - ${NETWORK}
+      - anytype
     labels:
       caddy_0: ${GUI_URL_ANYTYPE}:${ANY_SYNC_CONSENSUSNODE_PORT}
       caddy_0.reverse_proxy: "{{upstreams ${ANY_SYNC_CONSENSUSNODE_PORT}}}"
@@ -411,6 +412,7 @@ services:
     restart: on-failure
     networks:
       - ${NETWORK}
+      - anytype
 
   homepage:
     image: ghcr.io/gethomepage/homepage:latest
@@ -432,3 +434,7 @@ services:
 networks:
   caddy:
     external: true
+  anytype:
+    driver: bridge
+  tandoor:
+    driver: bridge

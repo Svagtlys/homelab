@@ -8,6 +8,20 @@ services:
       - ${APP_PATH}/mongo:/data/db:rw
     networks:
       - ${NETWORK}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mongo",
+          "--quiet",
+          "127.0.0.1/test",
+          "--eval",
+          "'quit(db.runCommand({ ping: 1 }).ok ? 0 : 2)'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
     restart: unless-stopped
 
   nightscout:

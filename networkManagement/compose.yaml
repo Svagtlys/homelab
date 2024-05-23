@@ -68,6 +68,8 @@ services:
     ports:
       - ${GUI_PORT_PROWLARR}:9696     # Prowlarr
       - ${GUI_PORT_QBITTORRENT}:${GUI_PORT_QBITTORRENT}    # qbittorrent GUI
+      - 6881:6881     # torrent port
+      - 6881:6881/udp # torrent port
     volumes:
       - ${APP_PATH}/gluetun:/gluetun
     environment:
@@ -134,7 +136,7 @@ services:
       POSTGRES_USER: ${PG_USER:-authentik}
       POSTGRES_DB: ${PG_DB:-authentik}
     networks:
-      - ${NETWORK}
+      - authentik
 
   redis:
     image: docker.io/library/redis:alpine
@@ -151,7 +153,7 @@ services:
     volumes:
       - ${APP_PATH}/redis:/data
     networks:
-      - ${NETWORK}
+      - authentik
 
   server:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2024.4.2}
@@ -177,6 +179,7 @@ services:
       - redis
     networks:
       - ${NETWORK}
+      - authentik
     labels:
       caddy: ${GUI_URL_AUTHENTIK}
       caddy.import: local-only "{{upstreams 9000}}"
@@ -203,7 +206,7 @@ services:
       - postgresql
       - redis
     networks:
-      - ${NETWORK}
+      - authentik
 
 
 networks:
@@ -215,3 +218,5 @@ networks:
       driver: default
       config:
         - subnet: 10.9.8.0/24
+  authentik:
+    driver: bridge

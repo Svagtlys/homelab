@@ -15,6 +15,12 @@ services:
       - ${APP_PATH}/eclipse-mosquitto/config:/mosquitto/config
       - ${APP_PATH}/eclipse-mosquitto/data:/mosquitto/data
       - ${APP_PATH}/eclipse-mosquitto/log:/mosquitto/log
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-u", "$MQTT_USER", "-P", "$MQTT_PWD", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
     networks:
       - ${NETWORK}
     restart: unless-stopped
@@ -25,7 +31,8 @@ services:
     image: "koenkk/zigbee2mqtt:latest-dev"
     user: ${USER_HOMEAUTO}:${USER_HOMEAUTO}
     depends_on:
-      - eclipse-mosquitto
+      eclipse-mosquitto:
+        condition: service_healthy
     volumes:
       - ${APP_PATH}/zigbee2mqtt:/app/data
       - /run/udev:/run/udev
@@ -37,6 +44,12 @@ services:
       - ${GROUP_USBDEVICES}
     networks:
       - ${NETWORK}
+    healthcheck:
+      test: "wget --no-verbose --tries=1 --header 'Host: zigbee2mqtt.koseduhemak.de' --spider http://localhost:8080 || exit 1"
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 5s
     labels:
       caddy: ${GUI_URL_ZIGBEE2MQTT}
       caddy.import: local-only "{{upstreams 8080}}"
