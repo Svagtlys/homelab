@@ -199,7 +199,8 @@ services:
       MC_HOST_minio: http://${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}@minio:${MINIO_PORT}
     restart: no
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     entrypoint:
       - sh
       - -c
@@ -414,21 +415,21 @@ services:
       - ${NETWORK}
       - anytype
 
-  homepage:
-    image: ghcr.io/gethomepage/homepage:latest
-    container_name: homepage
-    user: ${USER_KNOWLEDGE}:999
-    # ports:
-    #   - 3000:3000
-    volumes:
-      - ${APP_PATH}/homepage:/app/config
-      - /var/run/docker.sock:/var/run/docker.sock # (optional) For docker integrations
-    restart: unless-stopped
-    networks:
-      - ${NETWORK}
-    labels:
-      caddy: ${GUI_URL_BASE}
-      caddy.reverse_proxy: "{{upstreams 3000}}"
+  # homepage:
+  #   image: ghcr.io/gethomepage/homepage:latest
+  #   container_name: homepage
+  #   user: ${USER_KNOWLEDGE}:999
+  #   # ports:
+  #   #   - 3000:3000
+  #   volumes:
+  #     - ${APP_PATH}/homepage:/app/config
+  #     - /var/run/docker.sock:/var/run/docker.sock # (optional) For docker integrations
+  #   restart: unless-stopped
+  #   networks:
+  #     - ${NETWORK}
+  #   labels:
+  #     caddy: ${GUI_URL_BASE}
+  #     caddy.reverse_proxy: "{{upstreams 3000}}"
 
       
 networks:

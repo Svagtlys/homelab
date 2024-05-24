@@ -78,6 +78,13 @@ services:
     container_name: homeassistant
     image: "ghcr.io/home-assistant/home-assistant:stable"
     # user: ${USER_HOMEAUTO}:${USER_HOMEAUTO}
+    depends_on:
+      zigbee2mqtt:
+        condition: service_healthy
+        required: false
+      node-red:
+        condition: service_healthy
+        required: false
     environment:
       - TZ=${TZ}
     volumes:
@@ -88,31 +95,13 @@ services:
       - "${GUI_PORT_HOMEASSISTANT}:8123"
     networks:
       - ${NETWORK}
+    healthcheck:
+      test: "curl --fail http://localhost:8123/ || exit 1"
     labels:
       caddy_0: ${GUI_URL_HOMEASSISTANT}
       caddy_0.reverse_proxy: "{{upstreams 8123}}"
       caddy_1: ${GUI_URL2_HOMEASSISTANT}
       caddy_1.redir: https://${GUI_URL_HOMEASSISTANT} permanent
-    restart: unless-stopped
-
-
-  openwakeword:
-    container_name: openwakeword
-    image: rhasspy/wyoming-openwakeword
-    volumes:
-      # - ${APP_PATH}/openwakeword/custom:/custom
-      - ${APP_PATH}/openwakeword/config:/config
-      - ${APP_PATH}/openwakeword/data:/data
-    environment:
-      - TZ=${TZ}
-    depends_on:
-      - homeassistant
-    ports:
-      - ${GUI_PORT_OPENWAKEWORD}:10400
-      - ${GUI_PORT_OPENWAKEWORD}:10400/udp
-    command: --preload-model 'ok_nabu'
-    networks:
-      - ${NETWORK}
     restart: unless-stopped
 
 
