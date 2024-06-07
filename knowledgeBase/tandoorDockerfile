@@ -1,0 +1,5 @@
+FROM vabene1111/recipes:latest
+RUN adduser -D --uid 1002 tandoor
+RUN chown -R 1002:1002 /opt/recipes
+USER 1002:1002
+ENTRYPOINT ["/opt/recipes/boot.sh"]

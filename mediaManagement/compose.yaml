@@ -94,6 +94,28 @@ services:
       deunhealth.restart.on.unhealthy: true
     restart: unless-stopped
 
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: lidarr
+    environment:
+      - PUID=${USER_WORKINGMEDIA}
+      - PGID=${USER_WORKINGMEDIA}
+      - UMASK=002
+      - TZ=${TZ}
+    volumes:
+      - ${APP_PATH}/lidarr:/config
+      - ${PATH_NAS_HDD}/finished/music/:/music
+      - ${PATH_NAS_SSD}/unfinished/:/downloads
+    ports:
+      - ${GUI_PORT_LIDARR}:8686
+    restart: unless-stopped
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy: ${GUI_URL_LIDARR}
+      caddy.import: local-only "{{upstreams 8686}}"
+      deunhealth.restart.on.unhealthy: true
+
 
   unpackerr:
     image: golift/unpackerr
