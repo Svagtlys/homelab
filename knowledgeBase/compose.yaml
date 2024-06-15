@@ -12,9 +12,9 @@ services:
     environment:
       POSTGRES_PASSWORD: ${PASSWORD_POSTGRES}
       POSTGRES_USER: ${USERNAME_POSTGRES}
-      POSTGRES_MULTIPLE_DATABASES: tandoor,anytype
+      POSTGRES_MULTIPLE_DATABASES: tandoor,anytype,ryot
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -qd tandoor -U $$POSTGRES_USER && pg_isready -qd anytype -U $$POSTGRES_USER']
+      test: ['CMD-SHELL', 'pg_isready -qd tandoor -U $$POSTGRES_USER && pg_isready -qd anytype -U $$POSTGRES_USER && pg_isready -qd ryot -U $$POSTGRES_USER']
       interval: 20s
       retries: 10
       timeout: 10s
@@ -22,6 +22,7 @@ services:
     networks:
       - tandoor
       - anytype
+      - ryot
     labels:
       deunhealth.restart.on.unhealthy: true
 
@@ -37,7 +38,7 @@ services:
         condition: service_healthy
     environment:
       - POSTGRES_HOST=postgres
-      - POSTGRES_DB=tandoor,anytype
+      - POSTGRES_DB=tandoor,anytype,ryot
       - POSTGRES_USER=${USERNAME_POSTGRES}
       - POSTGRES_PASSWORD=${PASSWORD_POSTGRES}
       - POSTGRES_EXTRA_OPTS=-Z1 --schema=public --blobs
@@ -415,6 +416,24 @@ services:
       - ${NETWORK}
       - anytype
 
+  ryot:
+    image: ghcr.io/ignisda/ryot:latest
+    container_name: ryot
+    restart: unless-stopped
+#    user: ${USER_KNOWLEDGE}:${USER_KNOWLEDGE}
+    environment:
+      - DATABASE_URL=postgres://${USERNAME_POSTGRES}:${PASSWORD_POSTGRES}@postgres:5432/ryot
+      - USERS_ALLOW_REGISTRATION=false
+    networks:
+      - ${NETWORK}
+      - ryot
+    # healthcheck:
+    #   test: "curl --fail http://localhost:8000/backend/config || exit 1"
+    labels:
+      caddy: ${GUI_URL_RYOT}
+      caddy.reverse_proxy: "{{upstreams 8000}}"
+
+
   # homepage:
   #   image: ghcr.io/gethomepage/homepage:latest
   #   container_name: homepage
@@ -438,4 +457,6 @@ networks:
   anytype:
     driver: bridge
   tandoor:
+    driver: bridge
+  ryot:
     driver: bridge

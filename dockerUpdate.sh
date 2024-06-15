@@ -12,3 +12,7 @@ docker build -t qmcgaw/ddns-updater https://github.com/qdm12/ddns-updater.git --
 (cd mediaManagement/;   docker compose pull --ignore-pull-failures; docker compose up -d)
 (cd networkManagement/; docker compose pull --ignore-pull-failures; docker compose up -d)
 (cd nightscout/;        docker compose pull --ignore-pull-failures; docker compose up -d)
+
+# Restart these containers so that they're running off of the latest gluetun container
+
+(cd mediaManagement/;   docker compose restart qbittorrent prowlarr)

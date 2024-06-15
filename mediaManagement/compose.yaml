@@ -262,6 +262,28 @@ services:
       timeout: 1m
 
 
+  readarr:
+    image: lscr.io/linuxserver/readarr:develop
+    container_name: readarr
+    environment:
+      - PUID=${USER_WORKINGMEDIA}
+      - PGID=${USER_WORKINGMEDIA}
+      - TZ=${TZ}
+    volumes:
+      - ${APP_PATH}/readarr:/config
+      - ${PATH_NAS_HDD}/finished/literature:/books
+      - ${PATH_NAS_SSD}/unfinished/:/downloads
+    ports:
+      - ${GUI_PORT_READARR}:8787
+    restart: unless-stopped
+    networks:
+      - ${NETWORK}
+    labels:
+      caddy: ${GUI_URL_READARR}
+      caddy.import: local-only "{{upstreams 8787}}"
+      deunhealth.restart.on.unhealthy: true
+
+
 networks:
   caddy:
     external: true
